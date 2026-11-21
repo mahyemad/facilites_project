@@ -4,7 +4,7 @@ Source: [After-Hours Access Management Requirements](After_Hours_Access_Manageme
 
 **D1 vertical slice:** A student submits a single-day request, authorized Facilities staff approve it, and the student sees the saved decision. Tasks AH-T01 through AH-T05 make up the slice. AH-T06 through AH-T10 are specified for the backlog.
 
-**Acceptance test convention:** File names below are suggested paths by responsibility because the workspace currently contains only PDFs. Each check specifies the fixture, action, and assertions for one automated acceptance scenario. `./scripts/check-after-hours AH-T01` illustrates the proposed runner interface for an individual task and `./scripts/check-after-hours` is the proposed clean-checkout command for the implemented D1 slice. The runner and tests still need to be implemented in the lab agent's stack. Use synthetic student and Facilities accounts, a synthetic campus location, and a fixed test clock in the university's local time zone.
+**Acceptance test convention:** File names below are suggested paths by responsibility because the workspace currently contains only PDFs. Each check specifies the fixture, action, and assertions for one automated acceptance scenario. `./scripts/check-after-hours AH-T01` illustrates the proposed runner interface for an individual task and `./scripts/check-after-hours` is the proposed clean-checkout command for the implemented D1 slice. The runnable AH-T01 and AH-T02 service checks are linked below. The shared runner and remaining automated checks are pending. Use synthetic student and Facilities accounts, a synthetic campus location, and a fixed test clock in the university's local time zone.
 
 | Requirement | Priority | Expected behavior | Source section |
 | --- | --- | --- | --- |
@@ -28,12 +28,18 @@ Source: [After-Hours Access Management Requirements](After_Hours_Access_Manageme
 - **Out of scope** — University identity integration for the prototype, recurring dates, and notifications.
 - **Acceptance check** — Sign in as synthetic Student A and submit a future date, 18:00–20:00, a building and room, and a reason. Assert the receipt shows a reference and Pending Approval. Read the saved record and assert the reference, account-derived owner, location, hours, reason, and submission timestamp. Submit a second valid request for a distinct date and assert it receives a different reference.
 
+- **Run the service check** — `python3 -m pytest -q tests/test_after_hours.py` from the repository root. The check exercises submission and persistence. Browser form and signed-in identity wiring will be exercised in the full slice.
+- **Service interface for the lab agent** — Provide `after_hours.py` with `submit_request(store_path, *, student_id, submitted_at, stay_date, start_time, expected_departure_time, building, room, reason)` and `get_request(store_path, reference)`. Return a mapping with `reference` and `status` from submission. The retrieved mapping includes these and the submitted fields. Use the authenticated account ID when the form is wired to this service. Use a file-backed SQLite store and preserve Python date, time, and timezone-aware datetime values at the service boundary.
+
 ### AH-T02 — Validate a request before saving · AH-R02
 
 - **Goal** — Reject missing required fields and invalid dates or time ranges on the server and show actionable errors on the form.
 - **Likely files** — `after-hours/student-form`, `after-hours/request-validation`, `tests/acceptance/after-hours`.
 - **Out of scope** — Same-day submission policy, overnight stays, and overlap policy.
 - **Acceptance check** — For an otherwise valid request, omit the room, omit the reason, supply a nonexistent date, and reverse same-day start and end times in separate submissions. Assert a field error for each case and verify that none creates a record.
+
+- **Run the service check** — `python3 -m pytest -q tests/test_after_hours.py` from the repository root. This also runs the AH-T01 regression check.
+- **Service contract** — For invalid submissions, raise `ValueError` with the failing field name in the message before inserting a row. The test uses empty or whitespace-only text for missing fields, `"2026-02-30"` as an invalid date input, and an earlier departure time. Preserve the AH-T01 interface for valid inputs. Form error display comes with the browser form.
 
 ### AH-T03 — Review and approve a pending request · AH-R03
 
