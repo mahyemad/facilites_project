@@ -1,17 +1,41 @@
 import urllib.parse
-from datetime import datetime, time, timezone
+from datetime import datetime, time
 from http.cookies import SimpleCookie
 from secrets import token_urlsafe
 import after_hours
 import html
 
-def request_form(error=None):
+REQUEST_FIELDS = (
+    ("stay_date", "Date", "date"),
+    ("start_time", "Start time", "time"),
+    ("expected_departure_time", "Expected departure", "time"),
+    ("building", "Building", "text"),
+    ("room", "Room", "text"),
+    ("reason", "Reason", "text"),
+)
+
+
+def request_form(error=None, values=None):
     message = f'<p role="alert">{html.escape(error)}</p>' if error else ""
+    values = values or {}
+    fields = "".join(
+        f'<p><label>{label} <input type="{kind}" name="{name}" '
+        f'value="{html.escape(values.get(name, ""))}" required></label></p>'
+        for name, label, kind in REQUEST_FIELDS
+    )
     return (
-        '<h1>New after-hours request</h1>' + message +
-        '<form method="POST">Date:<input type="date" name="stay_date"><br>Start:<input type="time" name="start_time"><br>End:<input type="time" name="expected_departure_time"><br>Bldg:<input name="building"><br>Room:<input name="room"><br>Reason:<input name="reason"><br><button>Submit</button></form>'
+        f'<h1>New after-hours request</h1>{message}'
+        f'<form method="post">{fields}<button>Submit</button></form>'
         '<p><a href="/requests">My Requests</a></p>'
     )
+
+
+def request_details(request):
+    fields = "".join(
+        f'<dt>{label}</dt><dd>{html.escape(str(request[name]))}</dd>'
+        for name, label, _ in REQUEST_FIELDS
+    )
+    return f"<dl>{fields}</dl>"
 
 
 def create_app(store_path):
@@ -68,31 +92,30 @@ def create_app(store_path):
         if path == "/requests/new" and method == "POST":
             size = int(environ.get("CONTENT_LENGTH", 0) or 0)
             data = urllib.parse.parse_qs(environ["wsgi.input"].read(size).decode())
+            values = {name: data.get(name, [""])[0] for name, _, _ in REQUEST_FIELDS}
             field = "start_time"
             try:
-                start = time.fromisoformat(data.get(field, [""])[0])
+                start = time.fromisoformat(values[field])
                 field = "expected_departure_time"
-                end = time.fromisoformat(data.get(field, [""])[0])
-                if not data.get("building", [""])[0].strip():
-                    raise ValueError("building")
+                end = time.fromisoformat(values[field])
                 res = after_hours.submit_request(
                     store_path,
                     student_id=user_id,
-                    submitted_at=datetime.now(timezone.utc),
-                    stay_date=data.get("stay_date", [""])[0],
+                    submitted_at=datetime.now(after_hours.CAMPUS_TIME),
+                    stay_date=values["stay_date"],
                     start_time=start,
                     expected_departure_time=end,
-                    building=data.get("building", [""])[0],
-                    room=data.get("room", [""])[0],
-                    reason=data.get("reason", [""])[0],
+                    building=values["building"],
+                    room=values["room"],
+                    reason=values["reason"],
                 )
                 start_response("303 See Other", [("Location", f"/requests/{res['reference']}"), ("Content-Type", "text/html")])
                 return [b""]
             except ValueError as error:
-                known_fields = {"stay_date", "building", "room", "reason", "expected_departure_time"}
+                known_fields = {name for name, _, _ in REQUEST_FIELDS}
                 invalid = str(error) if str(error) in known_fields else field
                 start_response("400 Bad Request", [("Content-Type", "text/html")])
-                return [request_form(f"Check {invalid.replace('_', ' ')} and try again.").encode()]
+                return [request_form(f"Check {invalid.replace('_', ' ')} and try again.", values).encode()]
 
         if path.startswith("/requests/"):
             parts = path.split("/")
@@ -104,6 +127,7 @@ def create_app(store_path):
                     return [b"Not found"]
                 start_response("200 OK", [("Content-Type", "text/html")])
                 return [f'<h1>Request {html.escape(ref)}</h1><p>Status: {html.escape(req["status"])}</p>'
+                        f'{request_details(req)}'
                         '<a href="/requests">My Requests</a> | <a href="/login">Switch account</a>'.encode()]
 
         if path == "/requests":
@@ -123,9 +147,11 @@ def create_app(store_path):
                 return [b"Forbidden"]
             reqs = after_hours.list_pending_requests(store_path, actor_role=role)
             forms = "".join(
-                f'<form method="post" action="/facilities/{r["reference"]}/approve">'
-                f'<p>{r["reference"]}: {html.escape(r["building"])} / {html.escape(r["room"])} '
-                f'<button>Approve</button></p></form>' for r in reqs
+                f'<details><summary>Request {html.escape(r["reference"])} · '
+                f'{html.escape(r["building"])} / {html.escape(r["room"])}</summary>'
+                f'<p>Student {html.escape(r["student_id"])}</p>{request_details(r)}'
+                f'<form method="post" action="/facilities/{html.escape(r["reference"])}/approve">'
+                f'<button>Approve</button></form></details>' for r in reqs
             )
             body = ('<h1>Facilities pending requests</h1><a href="/login">Switch account</a>'
                     + (forms or "<p>No pending requests.</p>")).encode()
@@ -140,7 +166,14 @@ def create_app(store_path):
             if method != "POST":
                 start_response("405 Method Not Allowed", [("Allow", "POST"), ("Content-Type", "text/html")])
                 return [b"Use the approval form."]
-            after_hours.approve_request(store_path, ref, actor_role=role, actor_id=user_id, decided_at=datetime.now(timezone.utc))
+            approved = after_hours.approve_request(
+                store_path, ref, actor_role=role, actor_id=user_id,
+                decided_at=datetime.now(after_hours.CAMPUS_TIME),
+            )
+            if not approved:
+                start_response("409 Conflict", [("Content-Type", "text/html; charset=utf-8")])
+                return [b'<p>This request is no longer available for approval.</p>'
+                        b'<a href="/facilities">Back to pending requests</a>']
             start_response("303 See Other", [("Location", "/facilities"), ("Content-Type", "text/html")])
             return [b""]
 

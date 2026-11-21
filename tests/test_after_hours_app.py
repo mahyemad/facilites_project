@@ -1,5 +1,6 @@
 """Exercise the demo through its HTTP interface using separate sessions."""
 
+from datetime import datetime, timedelta
 from io import BytesIO
 from urllib.parse import urlencode
 from wsgiref.util import setup_testing_defaults
@@ -41,6 +42,7 @@ def sign_in(app, account):
 
 
 def test_student_request_appears_approved_only_to_its_owner(tmp_path):
+    from after_hours import CAMPUS_TIME
     from app import create_app
 
     app = validator(create_app(tmp_path / "demo.sqlite3"))
@@ -52,17 +54,24 @@ def test_student_request_appears_approved_only_to_its_owner(tmp_path):
     assert form["status"] == 200
     assert "<form" in form["body"]
 
-    submission = send(
+    today = datetime.now(CAMPUS_TIME).date()
+    future_date = (today + timedelta(days=7)).isoformat()
+    fields = {
+        "stay_date": future_date,
+        "start_time": "18:00",
+        "expected_departure_time": "20:00",
+        "building": "Synthetic Science Building",
+        "room": "Room 101",
+        "reason": "Group project meeting <test>",
+    }
+    invalid = send(
         app, "/requests/new", cookie=student,
-        form={
-            "stay_date": "2027-12-07",
-            "start_time": "18:00",
-            "expected_departure_time": "20:00",
-            "building": "Synthetic Science Building",
-            "room": "Room 101",
-            "reason": "Group project meeting",
-        },
+        form={**fields, "stay_date": (today - timedelta(days=7)).isoformat()},
     )
+    assert invalid["status"] == 400
+    assert "Check stay date" in invalid["body"]
+    assert "Group project meeting &lt;test&gt;" in invalid["body"]
+    submission = send(app, "/requests/new", cookie=student, form=fields)
     assert submission["status"] == 303
     detail_path = submission["headers"]["Location"]
     assert detail_path.startswith("/requests/")
@@ -76,6 +85,11 @@ def test_student_request_appears_approved_only_to_its_owner(tmp_path):
     approval_path = f"/facilities/{reference}/approve"
     assert queue["status"] == 200
     assert approval_path in queue["body"]
+    for detail in (future_date, "18:00", "20:00", "student-a", "Group project meeting &lt;test&gt;"):
+        assert detail in queue["body"]
+    get_approval = send(app, approval_path, cookie=reviewer)
+    assert get_approval["status"] == 405
+    assert get_approval["headers"]["Allow"] == "POST"
     assert send(app, approval_path, form={}, cookie=student)["status"] == 403
     assert "Pending Approval" in send(app, detail_path, cookie=student)["body"]
     assert send(app, approval_path, form={}, cookie=reviewer)["status"] == 303
@@ -87,3 +101,4 @@ def test_student_request_appears_approved_only_to_its_owner(tmp_path):
     assert reference in send(app, "/requests", cookie=student)["body"]
     assert send(app, detail_path, cookie=other_student)["status"] == 404
     assert reference not in send(app, "/requests", cookie=other_student)["body"]
+    assert send(app, approval_path, form={}, cookie=reviewer)["status"] == 409

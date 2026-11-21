@@ -1,7 +1,10 @@
 import sqlite3
 import uuid
 from contextlib import closing
-from datetime import datetime, date, time
+from datetime import datetime, date, time, timezone
+from zoneinfo import ZoneInfo
+
+CAMPUS_TIME = ZoneInfo("Africa/Cairo")
 
 def _get_db(store_path):
     conn = sqlite3.connect(store_path)
@@ -73,37 +76,52 @@ def _get_db(store_path):
         raise
     return conn
 
-def _validate_request(stay_date, start_time, expected_departure_time, room, reason):
+def _campus_timestamp(value):
+    if value.utcoffset() is None:
+        raise ValueError("Timestamp must be timezone-aware")
+    return value.astimezone(CAMPUS_TIME)
+
+
+def _validate_request(stay_date, start_time, expected_departure_time, building, room, reason, submitted_at):
+    if not isinstance(building, str) or not building.strip():
+        raise ValueError("building")
     if not isinstance(room, str) or not room.strip():
         raise ValueError("room")
     if not isinstance(reason, str) or not reason.strip():
         raise ValueError("reason")
-    if expected_departure_time <= start_time:
+    if not isinstance(start_time, time) or start_time.tzinfo is not None:
+        raise ValueError("start_time")
+    if (
+        not isinstance(expected_departure_time, time)
+        or expected_departure_time.tzinfo is not None
+        or expected_departure_time <= start_time
+    ):
         raise ValueError("expected_departure_time")
     
     if isinstance(stay_date, str):
         try:
-            date.fromisoformat(stay_date)
+            stay_date = date.fromisoformat(stay_date)
         except ValueError:
-            raise ValueError("stay_date")
-    elif not isinstance(stay_date, date):
+            raise ValueError("stay_date") from None
+    if not isinstance(stay_date, date) or isinstance(stay_date, datetime):
         raise ValueError("stay_date")
+    if stay_date < submitted_at.date():
+        raise ValueError("stay_date")
+    return stay_date
+
 
 def submit_request(store_path, *, student_id, submitted_at, stay_date, start_time, expected_departure_time, building, room, reason):
-    _validate_request(stay_date, start_time, expected_departure_time, room, reason)
-    
+    submitted_at = _campus_timestamp(submitted_at)
+    stay_date = _validate_request(
+        stay_date, start_time, expected_departure_time, building, room, reason, submitted_at
+    )
     reference = str(uuid.uuid4())
     status = "Pending Approval"
-    
-    if isinstance(stay_date, str):
-        stay_date_val = date.fromisoformat(stay_date)
-    else:
-        stay_date_val = stay_date
-    
+
     conn = _get_db(store_path)
     conn.execute(
         "INSERT INTO requests (reference, student_id, submitted_at, stay_date, start_time, expected_departure_time, building, room, reason, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (reference, student_id, submitted_at.isoformat(), stay_date_val.isoformat(), 
+        (reference, student_id, submitted_at.isoformat(), stay_date.isoformat(),
          start_time.isoformat(), expected_departure_time.isoformat(), building, room, reason, status)
     )
     conn.commit()
@@ -133,7 +151,10 @@ def get_request(store_path, reference):
     return result
 
 def submit_recurring_request(store_path, *, student_id, submitted_at, start_date, end_date, weekdays, start_time, expected_departure_time, building, room, reason):
-    _validate_request(start_date, start_time, expected_departure_time, room, reason)
+    submitted_at = _campus_timestamp(submitted_at)
+    start_date = _validate_request(
+        start_date, start_time, expected_departure_time, building, room, reason, submitted_at
+    )
     if end_date < start_date:
         raise ValueError("Invalid range")
     weekdays = set(weekdays)
@@ -220,31 +241,28 @@ def list_pending_requests(store_path, *, actor_role):
 def approve_request(store_path, reference, *, actor_role, actor_id, decided_at):
     if actor_role != "facilities":
         raise PermissionError("Unauthorized")
-    
-    conn = _get_db(store_path)
-    
-    cursor = conn.execute(
-        "UPDATE requests SET status = 'Approved', decision_maker_id = ?, decided_at = ? "
-        "WHERE reference = ? AND status = 'Pending Approval' AND parent_reference IS NULL AND end_date IS NULL",
-        (actor_id, decided_at.isoformat(), reference),
-    )
-    
-    if cursor.rowcount > 0:
+
+    timestamp = _campus_timestamp(decided_at).isoformat()
+    with closing(_get_db(store_path)) as conn, conn:
+        cursor = conn.execute(
+            "UPDATE requests SET status = 'Approved', decision_maker_id = ?, decided_at = ? "
+            "WHERE reference = ? AND status = 'Pending Approval' AND parent_reference IS NULL AND end_date IS NULL",
+            (actor_id, timestamp, reference),
+        )
+        if cursor.rowcount == 0:
+            return False
         conn.execute(
             "INSERT INTO request_history (reference, actor_id, decided_at, from_status, to_status) "
             "VALUES (?, ?, ?, ?, ?)",
-            (reference, actor_id, decided_at.isoformat(), "Pending Approval", "Approved")
+            (reference, actor_id, timestamp, "Pending Approval", "Approved"),
         )
-        # Fetch student_id from current row instead of reopening connection
-        cursor = conn.execute("SELECT student_id FROM requests WHERE reference = ?", (reference,))
-        student_id = cursor.fetchone()[0]
         conn.execute(
-            "INSERT INTO student_notifications (student_id, reference, status) VALUES (?, ?, ?)",
-            (student_id, reference, "Approved")
+            "INSERT INTO student_notifications (student_id, reference, status) "
+            "SELECT student_id, reference, 'Approved' FROM requests WHERE reference = ?",
+            (reference,),
         )
-        
-    conn.commit()
-    conn.close()
+        return True
+
 
 def cancel_request(store_path, reference, *, student_id, cancelled_at):
     if cancelled_at.utcoffset() is None:
@@ -267,16 +285,16 @@ def cancel_request(store_path, reference, *, student_id, cancelled_at):
         start = datetime.combine(
             date.fromisoformat(row["stay_date"]),
             time.fromisoformat(row["start_time"]),
-            tzinfo=cancelled_at.tzinfo,
+            tzinfo=CAMPUS_TIME,
         )
-        if cancelled_at >= start:
+        if cancelled_at.astimezone(timezone.utc) >= start.astimezone(timezone.utc):
             raise ValueError("Cannot cancel at or after start time")
 
         conn.execute("UPDATE requests SET status = 'Cancelled' WHERE reference = ?", (reference,))
         conn.execute(
             "INSERT INTO request_history (reference, actor_id, decided_at, from_status, to_status) "
             "VALUES (?, ?, ?, ?, ?)",
-            (reference, student_id, cancelled_at.isoformat(), row["status"], "Cancelled"),
+            (reference, student_id, _campus_timestamp(cancelled_at).isoformat(), row["status"], "Cancelled"),
         )
 
 
@@ -288,14 +306,14 @@ def reject_request(store_path, reference, *, actor_role, actor_id, decided_at, r
     cursor = conn.execute(
         "UPDATE requests SET status = 'Rejected', decision_maker_id = ?, decided_at = ?, rejection_reason = ? "
         "WHERE reference = ? AND status = 'Pending Approval' AND parent_reference IS NULL AND end_date IS NULL",
-        (actor_id, decided_at.isoformat(), reason, reference),
+        (actor_id, _campus_timestamp(decided_at).isoformat(), reason, reference),
     )
     
     if cursor.rowcount > 0:
         conn.execute(
             "INSERT INTO request_history (reference, actor_id, decided_at, from_status, to_status) "
             "VALUES (?, ?, ?, ?, ?)",
-            (reference, actor_id, decided_at.isoformat(), "Pending Approval", "Rejected")
+            (reference, actor_id, _campus_timestamp(decided_at).isoformat(), "Pending Approval", "Rejected")
         )
         # Fetch student_id from current row instead of reopening connection
         cursor = conn.execute("SELECT student_id FROM requests WHERE reference = ?", (reference,))
@@ -332,9 +350,9 @@ def edit_request_room(store_path, reference, *, student_id, room, edited_at):
         start = datetime.combine(
             date.fromisoformat(row["stay_date"]),
             time.fromisoformat(row["start_time"]),
-            tzinfo=edited_at.tzinfo,
+            tzinfo=CAMPUS_TIME,
         )
-        if edited_at >= start:
+        if edited_at.astimezone(timezone.utc) >= start.astimezone(timezone.utc):
             raise ValueError("Edit at or after start")
 
         old_room = row["room"]
@@ -342,7 +360,7 @@ def edit_request_room(store_path, reference, *, student_id, room, edited_at):
         conn.execute(
             "INSERT INTO request_history (reference, actor_id, decided_at, from_status, to_status, old_room, new_room) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (reference, student_id, edited_at.isoformat(), "Pending Approval", "Pending Approval", old_room, room),
+            (reference, student_id, _campus_timestamp(edited_at).isoformat(), "Pending Approval", "Pending Approval", old_room, room),
         )
 
 def get_request_history(store_path, reference, *, actor_role):

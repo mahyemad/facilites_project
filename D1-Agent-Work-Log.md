@@ -23,4 +23,8 @@ Token counts come from the Lab 6 meter. Costs use the rates configured at run ti
 
 - The read-only smoke test completed in 2 calls with 1,707 input tokens, 306 output tokens, and $0.00 at configured rates. It established that Lab 6 could read the specs through Gemini. It is excluded from the five substantive measured tasks.
 - The first AH-T01 implementation attempt stopped at Docker DNS resolution before Gemini returned any usage. A later attempt read the test and timed out on request 3 before writing code. The launcher did not print a token total for that interrupted run.
-- The successful run covers the AH-T01 service check. The browser form and authenticated submission flow are still pending for the vertical slice.
+- The successful run covers the AH-T01 service check. The separate AH-BROWSER entry records the completed authenticated browser workflow.
+
+## Teammate test follow-up
+
+- 2026-11-21 · AH-T02, AH-T03, AH-T05, AH-T06, AH-T08, AH-T09, and AH-BROWSER. Codex reviewed the teammate's findings and applied follow-up edits to validation, request details and approval, Cairo timestamps and cutoffs, test coverage, and the Lab 6 test paths. The original suite passed 29 checks before the edits. The updated suite passed 29 checks from a clean copy without the demo database on Python 3.9.6. A stubbed Lab 6 run verified the selected test paths, and a separate summer-date check verified the Cairo edit and cancellation cutoffs for a UTC caller. There was no Gemini call for this follow-up, and Codex token usage is unavailable. Compare scheduling cutoffs as instants after interpreting the requested start in the campus time zone.

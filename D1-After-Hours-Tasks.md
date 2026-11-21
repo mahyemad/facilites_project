@@ -2,9 +2,9 @@
 
 Source: [After-Hours Access Management Requirements](After_Hours_Access_Management_Requirements.pdf). The IDs below are assigned for this project. Must and Should are proposed backlog priorities based on the module draft.
 
-**D1 vertical slice:** A student submits a single-day request, authorized Facilities staff approve it, and the student sees the saved decision. Tasks AH-T01 through AH-T05 make up the slice. AH-T06 through AH-T10 are specified for the backlog.
+**D1 vertical slice:** A student submits a single-day request, authorized Facilities staff approve it, and the student sees the saved decision. Tasks AH-T01 through AH-T05 make up the slice, and AH-BROWSER integrates them in the demo. AH-T06 through AH-T10 are implemented and checked at the service layer.
 
-**Acceptance test convention:** File names below are suggested paths by responsibility because the workspace currently contains only PDFs. Each check specifies the fixture, action, and assertions for one automated acceptance scenario. `./scripts/check-after-hours AH-T01` illustrates the proposed runner interface for an individual task and `./scripts/check-after-hours` is the proposed clean-checkout command for the implemented D1 slice. The runnable AH-T01 through AH-T05 service checks are linked below. The shared runner and remaining automated checks are pending. Use synthetic student and Facilities accounts, a synthetic campus location, and a fixed test clock in the university's local time zone.
+**Acceptance test convention:** Run the full suite with `python3 -m pytest -q tests acceptance/ah_t*.py`. The AH-T01 through AH-T05 and AH-BROWSER checks are in `tests/`. Run a single backlog check with its linked file, for example `python3 -m pytest -q acceptance/ah_t06.py`. Use synthetic accounts and locations and a fixed clock for time-sensitive service checks.
 
 | Requirement | Priority | Expected behavior | Source section |
 | --- | --- | --- | --- |

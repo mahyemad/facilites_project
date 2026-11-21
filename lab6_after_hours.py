@@ -26,13 +26,13 @@ def main() -> None:
     specification = (work / "D1-After-Hours-Tasks.md").read_text()
     task = specification.split(f"### {task_id}", 1)[1].split("\n##", 1)[0]
     if task_id == "AH-BROWSER":
-        target, test_file = "app.py", "test_after_hours_app.py"
+        target, test_file = "app.py", "tests/test_after_hours_app.py"
     elif task_id in BACKLOG_TASKS:
         target = "after_hours.py"
-        test_file = f"test_{task_id.lower().replace('-', '_')}.py"
+        test_file = f"acceptance/{task_id.lower().replace('-', '_')}.py"
     else:
-        target, test_file = "after_hours.py", "test_after_hours.py"
-    acceptance_test = (work / "tests" / test_file).read_text()
+        target, test_file = "after_hours.py", "tests/test_after_hours.py"
+    acceptance_test = (work / test_file).read_text()
     existing_code = ""
     tools = core.TOOLS
     write_tool = "write_file"
@@ -83,7 +83,7 @@ def main() -> None:
             str(work),
             f"Implement {task_id} in {target} using the "
             "contract below. The spec and complete test are included. Keep the "
-            "test intact and run the tests before finishing."
+            f"test intact and run `python3 -m pytest -q {test_file}` before finishing."
             f"\n\n### {task_id}{task}\nAcceptance test:\n{acceptance_test}{existing_code}",
             model=call_gemini,
             approve=approve,

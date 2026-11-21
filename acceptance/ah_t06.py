@@ -28,7 +28,7 @@ def pending_request(tmp_path):
 
 
 def test_facilities_rejection_is_persisted_and_visible_to_owner(pending_request):
-    from after_hours import reject_request
+    from after_hours import approve_request, reject_request
 
     database, reference = pending_request
     reason = "Room is unavailable"
@@ -47,6 +47,11 @@ def test_facilities_rejection_is_persisted_and_visible_to_owner(pending_request)
     assert "rejection_reason" not in student_view
     assert "rejection_reason" not in list_student_requests(database, student_id="student-a")[0]
     assert get_student_request(database, reference, student_id="student-b") is None
+    approve_request(
+        database, reference, actor_role="facilities", actor_id="reviewer-b",
+        decided_at=DECIDED_AT,
+    )
+    assert get_request(database, reference) == saved
 
 
 def test_student_cannot_reject_even_their_own_request(pending_request):
