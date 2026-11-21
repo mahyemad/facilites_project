@@ -8,6 +8,9 @@ import core
 import models
 
 
+BACKLOG_TASKS = ("AH-T06", "AH-T07", "AH-T08", "AH-T09", "AH-T10")
+
+
 def main() -> None:
     if not os.environ.get("GEMINI_API_KEY"):
         raise SystemExit("Set GEMINI_API_KEY in your terminal first.")
@@ -15,7 +18,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "task_id",
-        choices=("AH-T01", "AH-T02", "AH-T03", "AH-T04", "AH-T05", "AH-T06", "AH-T07", "AH-T08", "AH-T09", "AH-BROWSER"),
+        choices=("AH-T01", "AH-T02", "AH-T03", "AH-T04", "AH-T05", *BACKLOG_TASKS, "AH-BROWSER"),
     )
     task_id = parser.parse_args().task_id
 
@@ -24,7 +27,7 @@ def main() -> None:
     task = specification.split(f"### {task_id}", 1)[1].split("\n##", 1)[0]
     if task_id == "AH-BROWSER":
         target, test_file = "app.py", "test_after_hours_app.py"
-    elif task_id in {"AH-T06", "AH-T07", "AH-T08", "AH-T09"}:
+    elif task_id in BACKLOG_TASKS:
         target = "after_hours.py"
         test_file = f"test_{task_id.lower().replace('-', '_')}.py"
     else:
@@ -33,7 +36,7 @@ def main() -> None:
     existing_code = ""
     tools = core.TOOLS
     write_tool = "write_file"
-    if task_id in {"AH-T06", "AH-T07", "AH-T08", "AH-T09"}:
+    if task_id in BACKLOG_TASKS:
         write_tool = "edit_service"
         tools = [tool for tool in tools if tool["name"] != "write_file"] + [{
             "name": write_tool,
