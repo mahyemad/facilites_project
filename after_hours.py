@@ -4,22 +4,46 @@ from datetime import datetime, date, time
 
 def _get_db(store_path):
     conn = sqlite3.connect(store_path)
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS requests (
-            reference TEXT PRIMARY KEY,
-            student_id TEXT,
-            submitted_at TIMESTAMP,
-            stay_date DATE,
-            start_time TIME,
-            expected_departure_time TIME,
-            building TEXT,
-            room TEXT,
-            reason TEXT,
-            status TEXT
-        )
-        """
-    )
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        with conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS requests (
+                    reference TEXT PRIMARY KEY,
+                    student_id TEXT,
+                    submitted_at TIMESTAMP,
+                    stay_date DATE,
+                    start_time TIME,
+                    expected_departure_time TIME,
+                    building TEXT,
+                    room TEXT,
+                    reason TEXT,
+                    status TEXT,
+                    decision_maker_id TEXT,
+                    decided_at TIMESTAMP
+                )
+                """
+            )
+            columns = {column[1] for column in conn.execute("PRAGMA table_info(requests)")}
+            if "decision_maker_id" not in columns:
+                conn.execute("ALTER TABLE requests ADD COLUMN decision_maker_id TEXT")
+            if "decided_at" not in columns:
+                conn.execute("ALTER TABLE requests ADD COLUMN decided_at TIMESTAMP")
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS request_history (
+                    reference TEXT,
+                    actor_id TEXT,
+                    decided_at TIMESTAMP,
+                    from_status TEXT,
+                    to_status TEXT
+                )
+                """
+            )
+    except Exception:
+        conn.close()
+        raise
     return conn
 
 def _validate_request(stay_date, start_time, expected_departure_time, room, reason):
@@ -44,9 +68,6 @@ def submit_request(store_path, *, student_id, submitted_at, stay_date, start_tim
     reference = str(uuid.uuid4())
     status = "Pending Approval"
     
-    # Ensure stay_date is a date object for database insertion
-    # The test passes '2026-02-30' (string) when testing invalid dates,
-    # but the logic above validates it. For normal cases it's a date object.
     if isinstance(stay_date, str):
         stay_date_val = date.fromisoformat(stay_date)
     else:
@@ -54,7 +75,7 @@ def submit_request(store_path, *, student_id, submitted_at, stay_date, start_tim
     
     conn = _get_db(store_path)
     conn.execute(
-        "INSERT INTO requests VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO requests (reference, student_id, submitted_at, stay_date, start_time, expected_departure_time, building, room, reason, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (reference, student_id, submitted_at.isoformat(), stay_date_val.isoformat(), 
          start_time.isoformat(), expected_departure_time.isoformat(), building, room, reason, status)
     )
@@ -79,6 +100,8 @@ def get_request(store_path, reference):
     result["stay_date"] = date.fromisoformat(result["stay_date"])
     result["start_time"] = time.fromisoformat(result["start_time"])
     result["expected_departure_time"] = time.fromisoformat(result["expected_departure_time"])
+    if result.get("decided_at"):
+        result["decided_at"] = datetime.fromisoformat(result["decided_at"])
     
     return result
 
@@ -102,18 +125,42 @@ def list_pending_requests(store_path, *, actor_role):
         results.append(result)
     return results
 
-def approve_request(store_path, reference, *, actor_role):
+def approve_request(store_path, reference, *, actor_role, actor_id, decided_at):
     if actor_role != "facilities":
         raise PermissionError("Unauthorized")
     
     conn = _get_db(store_path)
-    conn.execute(
-        "UPDATE requests SET status = 'Approved' "
+    
+    cursor = conn.execute(
+        "UPDATE requests SET status = 'Approved', decision_maker_id = ?, decided_at = ? "
         "WHERE reference = ? AND status = 'Pending Approval'",
-        (reference,),
+        (actor_id, decided_at.isoformat(), reference),
     )
+    
+    if cursor.rowcount > 0:
+        conn.execute(
+            "INSERT INTO request_history VALUES (?, ?, ?, ?, ?)",
+            (reference, actor_id, decided_at.isoformat(), "Pending Approval", "Approved")
+        )
+        
     conn.commit()
     conn.close()
+
+def get_request_history(store_path, reference, *, actor_role):
+    if actor_role != "facilities":
+        raise PermissionError("Unauthorized")
+        
+    conn = _get_db(store_path)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT * FROM request_history WHERE reference = ?", (reference,)).fetchall()
+    conn.close()
+    
+    results = []
+    for row in rows:
+        result = dict(row)
+        result["decided_at"] = datetime.fromisoformat(result["decided_at"])
+        results.append(result)
+    return results
 
 def list_student_requests(store_path, *, student_id):
     conn = _get_db(store_path)
@@ -143,7 +190,6 @@ def get_student_request(store_path, reference, *, student_id):
         return None
     
     result = dict(row)
-    # Convert back to types
     result["submitted_at"] = datetime.fromisoformat(result["submitted_at"])
     result["stay_date"] = date.fromisoformat(result["stay_date"])
     result["start_time"] = time.fromisoformat(result["start_time"])

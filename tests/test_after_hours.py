@@ -8,6 +8,9 @@ from importlib.util import find_spec
 import pytest
 
 
+DECIDED_AT = datetime(2026, 12, 2, 9, 30, tzinfo=timezone.utc)
+
+
 def test_single_day_request_is_saved_with_a_unique_pending_reference(tmp_path):
     if find_spec("after_hours") is None:
         pytest.fail("AH-T01 requires an after_hours module with submit_request and get_request.")
@@ -115,7 +118,9 @@ def test_facilities_approves_a_pending_request(pending_request):
     pending = list_pending_requests(store_path, actor_role="facilities")
     assert [request["reference"] for request in pending] == [reference]
 
-    approve_request(store_path, reference, actor_role="facilities")
+    approve_request(
+        store_path, reference, actor_role="facilities", actor_id="reviewer-a", decided_at=DECIDED_AT
+    )
 
     assert get_request(store_path, reference)["status"] == "Approved"
     assert list_pending_requests(store_path, actor_role="facilities") == []
@@ -128,7 +133,9 @@ def test_student_cannot_review_or_approve_a_pending_request(pending_request):
     with pytest.raises(PermissionError):
         list_pending_requests(store_path, actor_role="student")
     with pytest.raises(PermissionError):
-        approve_request(store_path, reference, actor_role="student")
+        approve_request(
+            store_path, reference, actor_role="student", actor_id="student-a", decided_at=DECIDED_AT
+        )
     assert get_request(store_path, reference)["status"] == "Pending Approval"
 
 
@@ -141,7 +148,9 @@ def test_owner_sees_the_saved_approval_in_list_and_detail(pending_request):
         (reference, "Pending Approval")
     ]
 
-    approve_request(store_path, reference, actor_role="facilities")
+    approve_request(
+        store_path, reference, actor_role="facilities", actor_id="reviewer-a", decided_at=DECIDED_AT
+    )
 
     requests = list_student_requests(store_path, student_id="student-a")
     assert [(request["reference"], request["status"]) for request in requests] == [
@@ -159,3 +168,65 @@ def test_other_student_cannot_see_private_request_in_list_or_detail(pending_requ
     assert list_student_requests(store_path, student_id="student-b") == []
     assert get_student_request(store_path, reference, student_id="student-b") is None
     assert get_student_request(store_path, "unknown-reference", student_id="student-a") is None
+
+
+def test_approval_records_reviewer_time_and_one_status_transition(pending_request):
+    from after_hours import approve_request, get_request, get_request_history
+
+    store_path, reference = pending_request
+    approve_request(
+        store_path, reference, actor_role="facilities", actor_id="reviewer-a", decided_at=DECIDED_AT
+    )
+    approve_request(
+        store_path,
+        reference,
+        actor_role="facilities",
+        actor_id="reviewer-b",
+        decided_at=DECIDED_AT + timedelta(minutes=5),
+    )
+
+    saved = get_request(store_path, reference)
+    assert saved["status"] == "Approved"
+    assert saved["decision_maker_id"] == "reviewer-a"
+    assert saved["decided_at"] == DECIDED_AT
+
+    history = get_request_history(store_path, reference, actor_role="facilities")
+    assert len(history) == 1
+    assert {
+        field: history[0][field]
+        for field in ("reference", "actor_id", "decided_at", "from_status", "to_status")
+    } == {
+        "reference": reference,
+        "actor_id": "reviewer-a",
+        "decided_at": DECIDED_AT,
+        "from_status": "Pending Approval",
+        "to_status": "Approved",
+    }
+    with pytest.raises(PermissionError):
+        get_request_history(store_path, reference, actor_role="student")
+
+
+def test_approval_upgrades_an_existing_database(tmp_path):
+    from after_hours import approve_request, get_request
+
+    store_path = tmp_path / "legacy.sqlite3"
+    with closing(sqlite3.connect(store_path)) as connection, connection:
+        connection.execute(
+            "CREATE TABLE requests (reference TEXT PRIMARY KEY, student_id TEXT, "
+            "submitted_at TIMESTAMP, stay_date DATE, start_time TIME, "
+            "expected_departure_time TIME, building TEXT, room TEXT, reason TEXT, status TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO requests VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("legacy", "student-a", "2026-12-01T10:00:00+00:00", "2026-12-07",
+             "18:00", "20:00", "Test building", "Room 101", "Test reason", "Pending Approval"),
+        )
+
+    approve_request(
+        store_path, "legacy", actor_role="facilities", actor_id="reviewer-a", decided_at=DECIDED_AT
+    )
+
+    saved = get_request(store_path, "legacy")
+    assert saved["student_id"] == "student-a"
+    assert saved["status"] == "Approved"
+    assert saved["decision_maker_id"] == "reviewer-a"

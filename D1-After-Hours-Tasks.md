@@ -4,7 +4,7 @@ Source: [After-Hours Access Management Requirements](After_Hours_Access_Manageme
 
 **D1 vertical slice:** A student submits a single-day request, authorized Facilities staff approve it, and the student sees the saved decision. Tasks AH-T01 through AH-T05 make up the slice. AH-T06 through AH-T10 are specified for the backlog.
 
-**Acceptance test convention:** File names below are suggested paths by responsibility because the workspace currently contains only PDFs. Each check specifies the fixture, action, and assertions for one automated acceptance scenario. `./scripts/check-after-hours AH-T01` illustrates the proposed runner interface for an individual task and `./scripts/check-after-hours` is the proposed clean-checkout command for the implemented D1 slice. The runnable AH-T01 through AH-T04 service checks are linked below. The shared runner and remaining automated checks are pending. Use synthetic student and Facilities accounts, a synthetic campus location, and a fixed test clock in the university's local time zone.
+**Acceptance test convention:** File names below are suggested paths by responsibility because the workspace currently contains only PDFs. Each check specifies the fixture, action, and assertions for one automated acceptance scenario. `./scripts/check-after-hours AH-T01` illustrates the proposed runner interface for an individual task and `./scripts/check-after-hours` is the proposed clean-checkout command for the implemented D1 slice. The runnable AH-T01 through AH-T05 service checks are linked below. The shared runner and remaining automated checks are pending. Use synthetic student and Facilities accounts, a synthetic campus location, and a fixed test clock in the university's local time zone.
 
 | Requirement | Priority | Expected behavior | Source section |
 | --- | --- | --- | --- |
@@ -49,7 +49,7 @@ Source: [After-Hours Access Management Requirements](After_Hours_Access_Manageme
 - **Acceptance check** — Submit a request as Student A, open it from the pending queue as Facilities staff, and approve it. Reload and assert it is Approved and absent from the pending queue. Attempt approval of a separate pending request as Student A and assert access is denied and the request remains pending.
 
 - **Run the service check** — `python3 -m pytest -q tests/test_after_hours.py`. The service check uses synthetic roles. The Facilities browser queue and session-derived staff role come with the app.
-- **Service contract** — Add `list_pending_requests(store_path, *, actor_role)` and `approve_request(store_path, reference, *, actor_role)` in `after_hours.py`. Return pending request mappings from the list and persist an Approved status on approval. In these service tests, `"facilities"` is the authorized role and `"student"` is denied both operations with `PermissionError`. The future app must derive the role from the authenticated session.
+- **Service contract** — Add `list_pending_requests(store_path, *, actor_role)` and `approve_request(store_path, reference, *, actor_role, actor_id, decided_at)` in `after_hours.py`. Return pending request mappings from the list and persist an Approved status on approval. In these service tests, `"facilities"` is the authorized role and `"student"` is denied both operations with `PermissionError`. The future app must derive the role from the authenticated session.
 
 ### AH-T04 — Show the owner's saved decision · AH-R04
 
@@ -67,6 +67,9 @@ Source: [After-Hours Access Management Requirements](After_Hours_Access_Manageme
 - **Likely files** — `after-hours/decisions`, `after-hours/history`, `db/after-hours`, `tests/acceptance/after-hours`.
 - **Out of scope** — Audit export and analytics.
 - **Acceptance check** — Approve a pending request as a synthetic Facilities reviewer at a fixed test time. Read the saved decision and history. Assert the reviewer, timestamp, request reference, previous status Pending Approval, and new status Approved match the action.
+
+- **Run the service check** — `python3 -m pytest -q tests/test_after_hours.py`.
+- **Service contract** — Extend approval to accept the reviewer's `actor_id` and a timezone-aware `decided_at`. After a successful pending-to-approved transition, `get_request` returns `decision_maker_id` and `decided_at`. Add `get_request_history(store_path, reference, *, actor_role)` for Facilities only. Return event mappings with `reference`, `actor_id`, `decided_at`, `from_status`, and `to_status`. Save the decision and event in one database transaction. Duplicate approval attempts must preserve the first decision and create no extra event. Existing SQLite databases must retain their requests when upgraded.
 
 ## Additional backlog tasks
 
