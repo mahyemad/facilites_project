@@ -71,6 +71,16 @@ Source: [After-Hours Access Management Requirements](After_Hours_Access_Manageme
 - **Run the service check** — `python3 -m pytest -q tests/test_after_hours.py`.
 - **Service contract** — Extend approval to accept the reviewer's `actor_id` and a timezone-aware `decided_at`. After a successful pending-to-approved transition, `get_request` returns `decision_maker_id` and `decided_at`. Add `get_request_history(store_path, reference, *, actor_role)` for Facilities only. Return event mappings with `reference`, `actor_id`, `decided_at`, `from_status`, and `to_status`. Save the decision and event in one database transaction. Duplicate approval attempts must preserve the first decision and create no extra event. Existing SQLite databases must retain their requests when upgraded.
 
+### AH-BROWSER — Connect the D1 browser workflow · AH-R01 through AH-R05
+
+- **Goal** — Build a local-only demo with Python's standard library. Use server-rendered HTML, the existing SQLite service, and three synthetic demo accounts. Supply sign-in and account-switch controls so a reviewer can complete the flow manually.
+- **Files** — Implement `app.py` with `create_app(store_path)` returning a WSGI app. Make `python3 app.py` start the app on loopback. Verify with `python3 -m pytest -q`.
+- **Routes** — Provide a sign-in page at GET `/login` and select an account at POST `/login` using the `account` field. Use `student-a`, `student-b`, and `reviewer-a`. Set a session cookie and respond with 303. Derive user ID and role from the session. Use GET and POST `/requests/new` for the student form, redirect successful submissions with 303 to `/requests/<reference>`, and show the owner’s list at GET `/requests`. At GET `/facilities`, show the pending queue with a form posting to `/facilities/<reference>/approve`. Give successful approvals a 303 response. Use the signed-in reviewer's ID and a timezone-aware server timestamp. Return 403 for a student's approval attempt and 404 when a student requests another student's record.
+- **Form fields** — `stay_date`, `start_time`, `expected_departure_time`, `building`, `room`, and `reason`. Validate on the server and redisplay field errors. Show a reference and explicit status. Escape user-supplied content in HTML and render useful links for navigating between the applicable pages.
+- **Out of scope** — University authentication, production deployment, recurring requests, and departure tracking.
+- **Implementation notes** — For WSGI compliance include a Content-Type header on redirects. Parse form times into Python time objects before calling the service. Use an opaque random session token with a server-side account lookup, then use the existing owner-scoped service functions. Protect approval with a POST form and give the reviewer a direct link to the pending queue.
+- **Acceptance check** — `python3 -m pytest -q tests/test_after_hours_app.py` exercises separate browser sessions. The owner submits a request, the reviewer approves it, and the owner sees Approved. A second student cannot access the record.
+
 ## Additional backlog tasks
 
 ### AH-T06 — Reject a pending request · AH-R06
