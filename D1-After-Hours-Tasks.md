@@ -90,12 +90,18 @@ Source: [After-Hours Access Management Requirements](After_Hours_Access_Manageme
 - **Out of scope** — Rejection reason categories and the policy for when reasons must appear to students.
 - **Acceptance check** — Reject a pending request as Facilities with a synthetic reason. Assert the persisted decision contains the reason, reviewer, and timestamp, and the owner sees Rejected. Attempt rejection on a separate pending request as a student and assert it remains pending.
 
+- **Run the backlog check** — `python3 -m pytest -q acceptance/ah_t06.py` from the repository root. The check is opt-in. The rejection service is implemented.
+- **Service contract** — Add `reject_request(store_path, reference, *, actor_role, actor_id, decided_at, reason)`. Only Facilities may reject a pending request. Persist `rejection_reason`, `decision_maker_id`, and `decided_at` for internal retrieval. Expose the Rejected status through the existing owner-scoped view and keep the reason internal. Student attempts raise `PermissionError` and leave the request pending.
+
 ### AH-T07 — Acknowledge submissions and notify students of decisions · AH-R07
 
 - **Goal** — Acknowledge submission with its reference and deliver a private status notification when Facilities approves or rejects a request. Use in-app delivery for the prototype.
 - **Likely files** — `after-hours/requests`, `after-hours/decisions`, `notifications`, `tests/acceptance/after-hours`.
 - **Out of scope** — Email, reminders, and rejection reason disclosure policy.
 - **Acceptance check** — Submit two requests as Student A and assert each acknowledgement includes its reference. Approve one and reject the other as Facilities. Assert Student A receives an in-app notification for each decision with the correct reference and status, and Student B has neither notification.
+
+- **Run the backlog check** — `python3 -m pytest -q acceptance/ah_t07.py` from the repository root. This opt-in check exercises the decision notification service and depends on AH-T06.
+- **Service contract** — Keep returning the request reference and Pending Approval status from submission. Store a private notification for the request owner after each successful approval or rejection. Add `list_student_notifications(store_path, *, student_id)`, returning notification mappings with at least `reference` and `status`. The future in-app view supplies the signed-in student's ID from the session.
 
 ### AH-T08 — Cancel an upcoming request · AH-R08
 

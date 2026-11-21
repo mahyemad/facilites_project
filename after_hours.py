@@ -21,7 +21,18 @@ def _get_db(store_path):
                     reason TEXT,
                     status TEXT,
                     decision_maker_id TEXT,
-                    decided_at TIMESTAMP
+                    decided_at TIMESTAMP,
+                    rejection_reason TEXT
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS student_notifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    student_id TEXT,
+                    reference TEXT,
+                    status TEXT
                 )
                 """
             )
@@ -30,6 +41,8 @@ def _get_db(store_path):
                 conn.execute("ALTER TABLE requests ADD COLUMN decision_maker_id TEXT")
             if "decided_at" not in columns:
                 conn.execute("ALTER TABLE requests ADD COLUMN decided_at TIMESTAMP")
+            if "rejection_reason" not in columns:
+                conn.execute("ALTER TABLE requests ADD COLUMN rejection_reason TEXT")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS request_history (
@@ -142,6 +155,40 @@ def approve_request(store_path, reference, *, actor_role, actor_id, decided_at):
             "INSERT INTO request_history VALUES (?, ?, ?, ?, ?)",
             (reference, actor_id, decided_at.isoformat(), "Pending Approval", "Approved")
         )
+        # Fetch student_id from current row instead of reopening connection
+        cursor = conn.execute("SELECT student_id FROM requests WHERE reference = ?", (reference,))
+        student_id = cursor.fetchone()[0]
+        conn.execute(
+            "INSERT INTO student_notifications (student_id, reference, status) VALUES (?, ?, ?)",
+            (student_id, reference, "Approved")
+        )
+        
+    conn.commit()
+    conn.close()
+
+def reject_request(store_path, reference, *, actor_role, actor_id, decided_at, reason):
+    if actor_role != "facilities":
+        raise PermissionError("Unauthorized")
+    
+    conn = _get_db(store_path)
+    cursor = conn.execute(
+        "UPDATE requests SET status = 'Rejected', decision_maker_id = ?, decided_at = ?, rejection_reason = ? "
+        "WHERE reference = ? AND status = 'Pending Approval'",
+        (actor_id, decided_at.isoformat(), reason, reference),
+    )
+    
+    if cursor.rowcount > 0:
+        conn.execute(
+            "INSERT INTO request_history VALUES (?, ?, ?, ?, ?)",
+            (reference, actor_id, decided_at.isoformat(), "Pending Approval", "Rejected")
+        )
+        # Fetch student_id from current row instead of reopening connection
+        cursor = conn.execute("SELECT student_id FROM requests WHERE reference = ?", (reference,))
+        student_id = cursor.fetchone()[0]
+        conn.execute(
+            "INSERT INTO student_notifications (student_id, reference, status) VALUES (?, ?, ?)",
+            (student_id, reference, "Rejected")
+        )
         
     conn.commit()
     conn.close()
@@ -162,6 +209,14 @@ def get_request_history(store_path, reference, *, actor_role):
         results.append(result)
     return results
 
+def list_student_notifications(store_path, *, student_id):
+    conn = _get_db(store_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.execute("SELECT reference, status FROM student_notifications WHERE student_id = ?", (student_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
 def list_student_requests(store_path, *, student_id):
     conn = _get_db(store_path)
     conn.row_factory = sqlite3.Row
@@ -172,6 +227,7 @@ def list_student_requests(store_path, *, student_id):
     results = []
     for row in rows:
         result = dict(row)
+        result.pop("rejection_reason", None)
         result["submitted_at"] = datetime.fromisoformat(result["submitted_at"])
         result["stay_date"] = date.fromisoformat(result["stay_date"])
         result["start_time"] = time.fromisoformat(result["start_time"])
@@ -190,6 +246,7 @@ def get_student_request(store_path, reference, *, student_id):
         return None
     
     result = dict(row)
+    result.pop("rejection_reason", None)
     result["submitted_at"] = datetime.fromisoformat(result["submitted_at"])
     result["stay_date"] = date.fromisoformat(result["stay_date"])
     result["start_time"] = time.fromisoformat(result["start_time"])
