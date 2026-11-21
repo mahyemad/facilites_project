@@ -130,3 +130,32 @@ def test_student_cannot_review_or_approve_a_pending_request(pending_request):
     with pytest.raises(PermissionError):
         approve_request(store_path, reference, actor_role="student")
     assert get_request(store_path, reference)["status"] == "Pending Approval"
+
+
+def test_owner_sees_the_saved_approval_in_list_and_detail(pending_request):
+    from after_hours import approve_request, get_student_request, list_student_requests
+
+    store_path, reference = pending_request
+    requests = list_student_requests(store_path, student_id="student-a")
+    assert [(request["reference"], request["status"]) for request in requests] == [
+        (reference, "Pending Approval")
+    ]
+
+    approve_request(store_path, reference, actor_role="facilities")
+
+    requests = list_student_requests(store_path, student_id="student-a")
+    assert [(request["reference"], request["status"]) for request in requests] == [
+        (reference, "Approved")
+    ]
+    detail = get_student_request(store_path, reference, student_id="student-a")
+    assert detail["reference"] == reference
+    assert detail["status"] == "Approved"
+
+
+def test_other_student_cannot_see_private_request_in_list_or_detail(pending_request):
+    from after_hours import get_student_request, list_student_requests
+
+    store_path, reference = pending_request
+    assert list_student_requests(store_path, student_id="student-b") == []
+    assert get_student_request(store_path, reference, student_id="student-b") is None
+    assert get_student_request(store_path, "unknown-reference", student_id="student-a") is None

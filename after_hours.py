@@ -114,3 +114,39 @@ def approve_request(store_path, reference, *, actor_role):
     )
     conn.commit()
     conn.close()
+
+def list_student_requests(store_path, *, student_id):
+    conn = _get_db(store_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.execute("SELECT * FROM requests WHERE student_id = ?", (student_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    
+    results = []
+    for row in rows:
+        result = dict(row)
+        result["submitted_at"] = datetime.fromisoformat(result["submitted_at"])
+        result["stay_date"] = date.fromisoformat(result["stay_date"])
+        result["start_time"] = time.fromisoformat(result["start_time"])
+        result["expected_departure_time"] = time.fromisoformat(result["expected_departure_time"])
+        results.append(result)
+    return results
+
+def get_student_request(store_path, reference, *, student_id):
+    conn = _get_db(store_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.execute("SELECT * FROM requests WHERE reference = ? AND student_id = ?", (reference, student_id))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row:
+        return None
+    
+    result = dict(row)
+    # Convert back to types
+    result["submitted_at"] = datetime.fromisoformat(result["submitted_at"])
+    result["stay_date"] = date.fromisoformat(result["stay_date"])
+    result["start_time"] = time.fromisoformat(result["start_time"])
+    result["expected_departure_time"] = time.fromisoformat(result["expected_departure_time"])
+    
+    return result

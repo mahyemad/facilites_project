@@ -4,7 +4,7 @@ Source: [After-Hours Access Management Requirements](After_Hours_Access_Manageme
 
 **D1 vertical slice:** A student submits a single-day request, authorized Facilities staff approve it, and the student sees the saved decision. Tasks AH-T01 through AH-T05 make up the slice. AH-T06 through AH-T10 are specified for the backlog.
 
-**Acceptance test convention:** File names below are suggested paths by responsibility because the workspace currently contains only PDFs. Each check specifies the fixture, action, and assertions for one automated acceptance scenario. `./scripts/check-after-hours AH-T01` illustrates the proposed runner interface for an individual task and `./scripts/check-after-hours` is the proposed clean-checkout command for the implemented D1 slice. The runnable AH-T01 through AH-T03 service checks are linked below. The shared runner and remaining automated checks are pending. Use synthetic student and Facilities accounts, a synthetic campus location, and a fixed test clock in the university's local time zone.
+**Acceptance test convention:** File names below are suggested paths by responsibility because the workspace currently contains only PDFs. Each check specifies the fixture, action, and assertions for one automated acceptance scenario. `./scripts/check-after-hours AH-T01` illustrates the proposed runner interface for an individual task and `./scripts/check-after-hours` is the proposed clean-checkout command for the implemented D1 slice. The runnable AH-T01 through AH-T04 service checks are linked below. The shared runner and remaining automated checks are pending. Use synthetic student and Facilities accounts, a synthetic campus location, and a fixed test clock in the university's local time zone.
 
 | Requirement | Priority | Expected behavior | Source section |
 | --- | --- | --- | --- |
@@ -57,6 +57,9 @@ Source: [After-Hours Access Management Requirements](After_Hours_Access_Manageme
 - **Likely files** — `after-hours/my-requests`, `after-hours/requests`, `tests/acceptance/after-hours`.
 - **Out of scope** — Notifications and administrative reporting.
 - **Acceptance check** — As Student A, submit a request and see Pending Approval in My Requests. Approve it as Facilities, sign back in as A, and assert the same reference now shows Approved after reload. Sign in as Student B and assert A's request is absent from the list and its direct detail URL returns no request data.
+
+- **Run the service check** — `python3 -m pytest -q tests/test_after_hours.py`. The browser view and authenticated session come with the app.
+- **Service contract** — Add `list_student_requests(store_path, *, student_id)` and `get_student_request(store_path, reference, *, student_id)`. Return only records owned by the supplied student ID, with the current saved status. Return `None` from the detail function for unknown references and references owned by another student. The app must supply the signed-in student's ID from the session. Preserve the existing internal service functions.
 
 ### AH-T05 — Audit a Facilities approval · AH-R05
 
