@@ -81,3 +81,36 @@ def get_request(store_path, reference):
     result["expected_departure_time"] = time.fromisoformat(result["expected_departure_time"])
     
     return result
+
+def list_pending_requests(store_path, *, actor_role):
+    if actor_role != "facilities":
+        raise PermissionError("Unauthorized")
+    
+    conn = _get_db(store_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.execute("SELECT * FROM requests WHERE status = 'Pending Approval'")
+    rows = cursor.fetchall()
+    conn.close()
+    
+    results = []
+    for row in rows:
+        result = dict(row)
+        result["submitted_at"] = datetime.fromisoformat(result["submitted_at"])
+        result["stay_date"] = date.fromisoformat(result["stay_date"])
+        result["start_time"] = time.fromisoformat(result["start_time"])
+        result["expected_departure_time"] = time.fromisoformat(result["expected_departure_time"])
+        results.append(result)
+    return results
+
+def approve_request(store_path, reference, *, actor_role):
+    if actor_role != "facilities":
+        raise PermissionError("Unauthorized")
+    
+    conn = _get_db(store_path)
+    conn.execute(
+        "UPDATE requests SET status = 'Approved' "
+        "WHERE reference = ? AND status = 'Pending Approval'",
+        (reference,),
+    )
+    conn.commit()
+    conn.close()

@@ -13,7 +13,7 @@ def main() -> None:
         raise SystemExit("Set GEMINI_API_KEY in your terminal first.")
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("task_id", choices=("AH-T01", "AH-T02"))
+    parser.add_argument("task_id", choices=("AH-T01", "AH-T02", "AH-T03"))
     task_id = parser.parse_args().task_id
 
     work = Path("/work")

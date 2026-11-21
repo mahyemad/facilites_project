@@ -87,3 +87,46 @@ def test_invalid_request_reports_the_field_and_saves_no_record(tmp_path, field, 
         assert connection.execute("SELECT reference FROM requests").fetchall() == [
             (existing["reference"],)
         ]
+
+
+@pytest.fixture
+def pending_request(tmp_path):
+    from after_hours import submit_request
+
+    store_path = tmp_path / "after-hours.sqlite3"
+    receipt = submit_request(
+        store_path,
+        student_id="student-a",
+        submitted_at=datetime(2026, 12, 1, 10, 0, tzinfo=timezone.utc),
+        stay_date=date(2026, 12, 7),
+        start_time=time(18, 0),
+        expected_departure_time=time(20, 0),
+        building="Synthetic Science Building",
+        room="Room 101",
+        reason="Group project meeting",
+    )
+    return store_path, receipt["reference"]
+
+
+def test_facilities_approves_a_pending_request(pending_request):
+    from after_hours import approve_request, get_request, list_pending_requests
+
+    store_path, reference = pending_request
+    pending = list_pending_requests(store_path, actor_role="facilities")
+    assert [request["reference"] for request in pending] == [reference]
+
+    approve_request(store_path, reference, actor_role="facilities")
+
+    assert get_request(store_path, reference)["status"] == "Approved"
+    assert list_pending_requests(store_path, actor_role="facilities") == []
+
+
+def test_student_cannot_review_or_approve_a_pending_request(pending_request):
+    from after_hours import approve_request, get_request, list_pending_requests
+
+    store_path, reference = pending_request
+    with pytest.raises(PermissionError):
+        list_pending_requests(store_path, actor_role="student")
+    with pytest.raises(PermissionError):
+        approve_request(store_path, reference, actor_role="student")
+    assert get_request(store_path, reference)["status"] == "Pending Approval"
