@@ -110,6 +110,9 @@ Source: [After-Hours Access Management Requirements](After_Hours_Access_Manageme
 - **Out of scope** — Cancelling individual occurrences and staff override policy.
 - **Acceptance check** — As Student A, cancel A's future request and assert Cancelled plus a history entry with A as actor. Attempt to cancel another student's future request and A's own already-started request, and assert both statuses stay unchanged.
 
+- **Run the backlog check** — `python3 -m pytest -q acceptance/ah_t08.py` from the repository root.
+- **Service contract** — Add `cancel_request(store_path, reference, *, student_id, cancelled_at)`. Use a timezone-aware timestamp expressed in campus local time to compare against the stored stay date and start time. For an owner cancelling an upcoming Pending Approval or Approved request, save Cancelled and an audit event in the same transaction. Reuse the history event's `decided_at` field for the cancellation time. Raise `PermissionError` for another student's request and `ValueError` at or after the scheduled start. Failed attempts leave the status and history unchanged. Browser controls are a separate integration step.
+
 ### AH-T09 — Edit an upcoming pending request · AH-R09
 
 - **Goal** — Allow the owner to edit a pending request before its start, validate the change, and save the prior and new values in history.

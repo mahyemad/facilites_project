@@ -1,5 +1,6 @@
 import sqlite3
 import uuid
+from contextlib import closing
 from datetime import datetime, date, time
 
 def _get_db(store_path):
@@ -165,6 +166,39 @@ def approve_request(store_path, reference, *, actor_role, actor_id, decided_at):
         
     conn.commit()
     conn.close()
+
+def cancel_request(store_path, reference, *, student_id, cancelled_at):
+    if cancelled_at.utcoffset() is None:
+        raise ValueError("Cancellation time must be timezone-aware")
+
+    with closing(_get_db(store_path)) as conn, conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT student_id, status, stay_date, start_time FROM requests WHERE reference = ?",
+            (reference,),
+        ).fetchone()
+        if row is None:
+            return
+        if row["student_id"] != student_id:
+            raise PermissionError("Unauthorized")
+        if row["status"] not in ("Pending Approval", "Approved"):
+            return
+
+        start = datetime.combine(
+            date.fromisoformat(row["stay_date"]),
+            time.fromisoformat(row["start_time"]),
+            tzinfo=cancelled_at.tzinfo,
+        )
+        if cancelled_at >= start:
+            raise ValueError("Cannot cancel at or after start time")
+
+        conn.execute("UPDATE requests SET status = 'Cancelled' WHERE reference = ?", (reference,))
+        conn.execute(
+            "INSERT INTO request_history VALUES (?, ?, ?, ?, ?)",
+            (reference, student_id, cancelled_at.isoformat(), row["status"], "Cancelled"),
+        )
+
 
 def reject_request(store_path, reference, *, actor_role, actor_id, decided_at, reason):
     if actor_role != "facilities":
