@@ -120,6 +120,9 @@ Source: [After-Hours Access Management Requirements](After_Hours_Access_Manageme
 - **Out of scope** — Edits to approved requests until Facilities confirms the reapproval policy, and edits to recurring series.
 - **Acceptance check** — As Student A, change the room on A's future pending request. Assert its reference and pending status are preserved, the new room appears after reload, and history contains both rooms, actor, and timestamp. Attempt the change as Student B and on an already-started request as its owner, and assert the original room is preserved in both cases.
 
+- **Run the backlog check** — `python3 -m pytest -q acceptance/ah_t09.py` from the repository root.
+- **Service contract** — Add `edit_request_room(store_path, reference, *, student_id, room, edited_at)`. Follow AH-T08's campus-local timestamp convention. Only the owner of a Pending Approval request can change its room before its scheduled start. Reject blank room values and edits at or after the start with `ValueError`, and reject another student's attempt with `PermissionError`. Store the room change and audit event together in one write transaction. Return `old_room` and `new_room` on the edit event through the existing staff-only history function, using `decided_at` for the edit timestamp. Preserve existing SQLite requests and audit events when upgrading. The browser edit control is a later integration step.
+
 ### AH-T10 — Create recurring stay occurrences · AH-R10
 
 - **Goal** — Save one parent request and a separate pending occurrence for each selected weekday within the submitted date range.

@@ -51,10 +51,17 @@ def _get_db(store_path):
                     actor_id TEXT,
                     decided_at TIMESTAMP,
                     from_status TEXT,
-                    to_status TEXT
+                    to_status TEXT,
+                    old_room TEXT,
+                    new_room TEXT
                 )
                 """
             )
+            history_columns = {column[1] for column in conn.execute("PRAGMA table_info(request_history)")}
+            if "old_room" not in history_columns:
+                conn.execute("ALTER TABLE request_history ADD COLUMN old_room TEXT")
+            if "new_room" not in history_columns:
+                conn.execute("ALTER TABLE request_history ADD COLUMN new_room TEXT")
     except Exception:
         conn.close()
         raise
@@ -153,7 +160,8 @@ def approve_request(store_path, reference, *, actor_role, actor_id, decided_at):
     
     if cursor.rowcount > 0:
         conn.execute(
-            "INSERT INTO request_history VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO request_history (reference, actor_id, decided_at, from_status, to_status) "
+            "VALUES (?, ?, ?, ?, ?)",
             (reference, actor_id, decided_at.isoformat(), "Pending Approval", "Approved")
         )
         # Fetch student_id from current row instead of reopening connection
@@ -195,7 +203,8 @@ def cancel_request(store_path, reference, *, student_id, cancelled_at):
 
         conn.execute("UPDATE requests SET status = 'Cancelled' WHERE reference = ?", (reference,))
         conn.execute(
-            "INSERT INTO request_history VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO request_history (reference, actor_id, decided_at, from_status, to_status) "
+            "VALUES (?, ?, ?, ?, ?)",
             (reference, student_id, cancelled_at.isoformat(), row["status"], "Cancelled"),
         )
 
@@ -213,7 +222,8 @@ def reject_request(store_path, reference, *, actor_role, actor_id, decided_at, r
     
     if cursor.rowcount > 0:
         conn.execute(
-            "INSERT INTO request_history VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO request_history (reference, actor_id, decided_at, from_status, to_status) "
+            "VALUES (?, ?, ?, ?, ?)",
             (reference, actor_id, decided_at.isoformat(), "Pending Approval", "Rejected")
         )
         # Fetch student_id from current row instead of reopening connection
@@ -226,6 +236,43 @@ def reject_request(store_path, reference, *, actor_role, actor_id, decided_at, r
         
     conn.commit()
     conn.close()
+
+def edit_request_room(store_path, reference, *, student_id, room, edited_at):
+    if not isinstance(room, str) or not room.strip():
+        raise ValueError("room")
+    if edited_at.utcoffset() is None:
+        raise ValueError("Edit time must be timezone-aware")
+
+    with closing(_get_db(store_path)) as conn, conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT student_id, room, status, stay_date, start_time FROM requests WHERE reference = ?",
+            (reference,),
+        ).fetchone()
+
+        if row is None:
+            return
+        if row["student_id"] != student_id:
+            raise PermissionError("Unauthorized")
+        if row["status"] != "Pending Approval":
+            return
+
+        start = datetime.combine(
+            date.fromisoformat(row["stay_date"]),
+            time.fromisoformat(row["start_time"]),
+            tzinfo=edited_at.tzinfo,
+        )
+        if edited_at >= start:
+            raise ValueError("Edit at or after start")
+
+        old_room = row["room"]
+        conn.execute("UPDATE requests SET room = ? WHERE reference = ?", (room, reference))
+        conn.execute(
+            "INSERT INTO request_history (reference, actor_id, decided_at, from_status, to_status, old_room, new_room) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (reference, student_id, edited_at.isoformat(), "Pending Approval", "Pending Approval", old_room, room),
+        )
 
 def get_request_history(store_path, reference, *, actor_role):
     if actor_role != "facilities":
