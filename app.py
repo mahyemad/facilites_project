@@ -151,28 +151,45 @@ def create_app(store_path):
                 f'{html.escape(r["building"])} / {html.escape(r["room"])}</summary>'
                 f'<p>Student {html.escape(r["student_id"])}</p>{request_details(r)}'
                 f'<form method="post" action="/facilities/{html.escape(r["reference"])}/approve">'
-                f'<button>Approve</button></form></details>' for r in reqs
+                '<button>Approve</button></form>'
+                f'<form method="post" action="/facilities/{html.escape(r["reference"])}/reject">'
+                '<label>Rejection reason <input name="reason" required></label> '
+                '<button>Reject</button></form></details>' for r in reqs
             )
             body = ('<h1>Facilities pending requests</h1><a href="/login">Switch account</a>'
                     + (forms or "<p>No pending requests.</p>")).encode()
             start_response("200 OK", [("Content-Type", "text/html")])
             return [body]
 
-        if path.startswith("/facilities/") and path.endswith("/approve"):
-            ref = path.split("/")[2]
+        parts = path.split("/")
+        if len(parts) == 4 and parts[1] == "facilities" and parts[3] in {"approve", "reject"}:
+            _, _, ref, action = parts
             if role != "facilities":
                 start_response("403 Forbidden", [("Content-Type", "text/html")])
                 return [b"Forbidden"]
             if method != "POST":
                 start_response("405 Method Not Allowed", [("Allow", "POST"), ("Content-Type", "text/html")])
-                return [b"Use the approval form."]
-            approved = after_hours.approve_request(
-                store_path, ref, actor_role=role, actor_id=user_id,
-                decided_at=datetime.now(after_hours.CAMPUS_TIME),
-            )
-            if not approved:
+                return [b"Use the decision form."]
+            decided_at = datetime.now(after_hours.CAMPUS_TIME)
+            if action == "reject":
+                size = int(environ.get("CONTENT_LENGTH", 0) or 0)
+                data = urllib.parse.parse_qs(environ["wsgi.input"].read(size).decode())
+                reason = data.get("reason", [""])[0].strip()
+                if not reason:
+                    start_response("400 Bad Request", [("Content-Type", "text/html; charset=utf-8")])
+                    return [b'<p>Enter a rejection reason.</p>'
+                            b'<a href="/facilities">Back to pending requests</a>']
+                decided = after_hours.reject_request(
+                    store_path, ref, actor_role=role, actor_id=user_id,
+                    decided_at=decided_at, reason=reason,
+                )
+            else:
+                decided = after_hours.approve_request(
+                    store_path, ref, actor_role=role, actor_id=user_id, decided_at=decided_at,
+                )
+            if not decided:
                 start_response("409 Conflict", [("Content-Type", "text/html; charset=utf-8")])
-                return [b'<p>This request is no longer available for approval.</p>'
+                return [b'<p>This request is no longer pending.</p>'
                         b'<a href="/facilities">Back to pending requests</a>']
             start_response("303 See Other", [("Location", "/facilities"), ("Content-Type", "text/html")])
             return [b""]

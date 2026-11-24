@@ -309,7 +309,8 @@ def reject_request(store_path, reference, *, actor_role, actor_id, decided_at, r
         (actor_id, _campus_timestamp(decided_at).isoformat(), reason, reference),
     )
     
-    if cursor.rowcount > 0:
+    rejected = cursor.rowcount > 0
+    if rejected:
         conn.execute(
             "INSERT INTO request_history (reference, actor_id, decided_at, from_status, to_status) "
             "VALUES (?, ?, ?, ?, ?)",
@@ -325,6 +326,7 @@ def reject_request(store_path, reference, *, actor_role, actor_id, decided_at, r
         
     conn.commit()
     conn.close()
+    return rejected
 
 def edit_request_room(store_path, reference, *, student_id, room, edited_at):
     if not isinstance(room, str) or not room.strip():

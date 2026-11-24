@@ -28,3 +28,7 @@ Token counts come from the Lab 6 meter. Costs use the rates configured at run ti
 ## Teammate test follow-up
 
 - 2026-11-21 · AH-T02, AH-T03, AH-T05, AH-T06, AH-T08, AH-T09, and AH-BROWSER. Codex reviewed the teammate's findings and applied follow-up edits to validation, request details and approval, Cairo timestamps and cutoffs, test coverage, and the Lab 6 test paths. The original suite passed 29 checks before the edits. The updated suite passed 29 checks from a clean copy without the demo database on Python 3.9.6. A stubbed Lab 6 run verified the selected test paths, and a separate summer-date check verified the Cairo edit and cancellation cutoffs for a UTC caller. There was no Gemini call for this follow-up, and Codex token usage is unavailable. Compare scheduling cutoffs as instants after interpreting the requested start in the campus time zone.
+
+## Browser rejection follow-up
+
+- 2026-11-24 · AH-R06 / AH-T06 · Codex (model, token usage, and cost unavailable). The Facilities reviewer reported that the browser only offered approval. A rejection POST returned 404 before the change. Added a rejection form using the existing service and verified that only the reviewer can reject, a reason is required and saved internally, and the student sees Rejected. All 30 checks passed locally. Teammate review is pending. Include a browser-level check when exposing an existing service action.

@@ -28,7 +28,7 @@ python3 -m pip install pytest
 python3 -m pytest -q tests acceptance/ah_t*.py
 ```
 
-The full command runs 29 checks. To run the 12 checks for the D1 demo and its supporting service, use:
+The full command runs 30 checks. To run the checks for the D1 demo and its supporting service, use:
 
 ```sh
 python3 -m pytest -q tests
@@ -38,7 +38,7 @@ Both suites use temporary SQLite databases and synthetic records. The browser wo
 
 ## Scope and project files
 
-- The browser demo covers submission, validation, review, approval, and owner-only request access. Approval records the reviewer, time, and status change.
-- The service also supports rejection, private decision notifications, cancellation, pending-request room edits, and recurring stays. Their browser controls are pending. The approval policy for recurring requests and the same-day submission policy are open. The demo rejects past calendar dates and uses Africa/Cairo for campus schedules and newly recorded timestamps.
+- The browser demo covers submission, validation, review, approval, rejection, and owner-only request access. To reject a pending request, expand it in the Facilities queue, enter a rejection reason, and select **Reject**. The student sees **Rejected** in My Requests. The reason is recorded internally.
+- The service also supports private decision notifications, cancellation, pending-request room edits, and recurring stays. Their browser controls are pending. The approval policy for recurring requests and the same-day submission policy are open. The demo rejects past calendar dates and uses Africa/Cairo for campus schedules and newly recorded timestamps.
 - `app.py` contains the local demo. `after_hours.py` handles the SQLite service.
 - The [D1 task specs](D1-After-Hours-Tasks.md) trace each task to a requirement and list its acceptance check. The [D1 agent work log](D1-Agent-Work-Log.md) records the Lab 6 work, review outcomes, and usage.

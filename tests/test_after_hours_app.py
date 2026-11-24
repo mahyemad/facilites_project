@@ -102,3 +102,42 @@ def test_student_request_appears_approved_only_to_its_owner(tmp_path):
     assert send(app, detail_path, cookie=other_student)["status"] == 404
     assert reference not in send(app, "/requests", cookie=other_student)["body"]
     assert send(app, approval_path, form={}, cookie=reviewer)["status"] == 409
+
+
+def test_reviewer_can_reject_pending_request_with_internal_reason(tmp_path):
+    from after_hours import CAMPUS_TIME, get_request
+    from app import create_app
+
+    store_path = tmp_path / "demo.sqlite3"
+    app = validator(create_app(store_path))
+    student = sign_in(app, "student-a")
+    reviewer = sign_in(app, "reviewer-a")
+    submission = send(app, "/requests/new", cookie=student, form={
+        "stay_date": (datetime.now(CAMPUS_TIME).date() + timedelta(days=7)).isoformat(),
+        "start_time": "18:00",
+        "expected_departure_time": "20:00",
+        "building": "Science Building",
+        "room": "Room 101",
+        "reason": "Group project",
+    })
+    assert submission["status"] == 303
+    detail_path = submission["headers"]["Location"]
+    reference = detail_path.rsplit("/", 1)[1]
+    reject_path = f"/facilities/{reference}/reject"
+    queue = send(app, "/facilities", cookie=reviewer)["body"]
+    assert reject_path in queue and "<button>Reject</button>" in queue
+
+    reason = "Room unavailable"
+    assert send(app, reject_path, cookie=reviewer)["status"] == 405
+    assert send(app, reject_path, form={"reason": reason}, cookie=student)["status"] == 403
+    assert send(app, reject_path, form={"reason": "  "}, cookie=reviewer)["status"] == 400
+    assert "Pending Approval" in send(app, detail_path, cookie=student)["body"]
+    assert send(app, reject_path, form={"reason": reason}, cookie=reviewer)["status"] == 303
+    assert reject_path not in send(app, "/facilities", cookie=reviewer)["body"]
+    detail = send(app, detail_path, cookie=student)["body"]
+    assert "Rejected" in detail
+    assert reason not in detail
+    saved = get_request(store_path, reference)
+    assert saved["rejection_reason"] == reason
+    assert saved["decision_maker_id"] == "reviewer-a"
+    assert send(app, reject_path, form={"reason": "Other reason"}, cookie=reviewer)["status"] == 409
